@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2021 - 2024
+*  (C) COPYRIGHT AUTHORS, 2021 - 2026
 *
 *  TITLE:       MAIN.CPP
 *
-*  VERSION:     1.05
+*  VERSION:     1.06
 *
-*  DATE:        12 Jun 2025
+*  DATE:        06 Mar 2026
 *
 *  AuthHashCalc main logic and entrypoint.
 *
@@ -43,8 +43,8 @@ static DLG_HASH_CTRL g_UserHashControls[] = {
 
 #define PROGRAM_VERSION_MAJOR       1
 #define PROGRAM_VERSION_MINOR       0
-#define PROGRAM_VERSION_REVISION    5
-#define PROGRAM_VERSION_BUILD       2506
+#define PROGRAM_VERSION_REVISION    6
+#define PROGRAM_VERSION_BUILD       2603
 
 static HANDLE g_Heap;
 static HINSTANCE g_hInstance;
@@ -414,7 +414,7 @@ INT_PTR CALLBACK MainWindowProc(
     case WM_INITDIALOG:
 
         OnInitDialog(hwndDlg);
-        break;
+        return FALSE;
 
     case WM_SHOWWINDOW:
         if (wParam)
@@ -530,6 +530,7 @@ UINT ProcessFileCLI(
     NTSTATUS ntStatus;
     UINT uResult = ERROR_SUCCESS;
     LPWSTR lpszHash;
+    BOOLEAN bAnyError = FALSE;
     LPCWSTR cryptAlgoIdRef[] = {
         BCRYPT_MD5_ALGORITHM,
         BCRYPT_SHA1_ALGORITHM,
@@ -541,11 +542,9 @@ UINT ProcessFileCLI(
     FILE_VIEW_INFO fvi;
 
     RtlSecureZeroMemory(&fvi, sizeof(fvi));
-
     fvi.FileName = lpFileName;
 
     ntStatus = HashLoadFile(&fvi, FALSE);
-
     if (NT_SUCCESS(ntStatus)) {
 
         //
@@ -562,6 +561,7 @@ UINT ProcessFileCLI(
             }
             else {
                 fprintf_s(lpOutStream, "Error: empty hash %ws value\n", cryptAlgoIdRef[i]);
+                bAnyError = TRUE;
             }
         }
 
@@ -580,6 +580,7 @@ UINT ProcessFileCLI(
         }
         else {
             fprintf_s(lpOutStream, "Error: empty page hash %ws value\n", lpAlgId);
+            bAnyError = TRUE;
         }
 
         lpAlgId = BCRYPT_SHA256_ALGORITHM;
@@ -591,10 +592,13 @@ UINT ProcessFileCLI(
         }
         else {
             fprintf_s(lpOutStream, "Error: empty page hash %ws value\n", lpAlgId);
+            bAnyError = TRUE;
         }
 
         HashUnloadFile(&fvi);
 
+        if (bAnyError)
+            uResult = ERROR_INVALID_DATA;
     }
     else {
         if (ntStatus == STATUS_INVALID_IMAGE_FORMAT)
@@ -603,6 +607,7 @@ UINT ProcessFileCLI(
         else {
             fprintf_s(lpOutStream, "Error: failed to load input file, HashLoadFile: 0x%X\n", ntStatus);
         }
+        uResult = ERROR_INVALID_DATA;
     }
 
     return uResult;
@@ -622,6 +627,8 @@ UINT RunCLI(
 )
 {
     UINT uResult;
+    FILE* outStream;
+    errno_t err;
 
 #ifdef _DEBUG
     if (!AllocConsole()) {
@@ -633,40 +640,42 @@ UINT RunCLI(
     }
 #endif
 
-    FILE* outStream;
-    errno_t err;
+    do {
+        if (lpLogFileName) {
+            err = _wfopen_s(&outStream, lpLogFileName, L"wt");
+        }
+        else {
+            err = freopen_s(&outStream, "CONOUT$", "w", stdout);
+        }
 
-    if (lpLogFileName) {
-        err = _wfopen_s(&outStream, lpLogFileName, L"wt");
-    }
-    else {
-        err = freopen_s(&outStream, "CONOUT$", "w", stdout);
-    }
+        if (err != 0 || outStream == NULL) {
+            uResult = (UINT)-3;
+            break;
+        }
 
-    if (err != 0 || outStream == NULL) {
-        return (UINT)-3;
-    }
+        if (lpLogFileName) {
+            uResult = ProcessFileCLI(lpFileName, outStream);
+            fclose(outStream);
+            break;
+        }
 
-    if (lpLogFileName) {
-        uResult = ProcessFileCLI(lpFileName, outStream);
-        fclose(outStream);
-        return uResult;
-    }
+        fflush(stdout);
 
-    fflush(stdout);
+        fprintf_s(stdout, "\nAuthHashCalc v%u.%u.%u.%u built at %s\n\n",
+            PROGRAM_VERSION_MAJOR,
+            PROGRAM_VERSION_MINOR,
+            PROGRAM_VERSION_REVISION,
+            PROGRAM_VERSION_BUILD,
+            __TIMESTAMP__);
 
-    fprintf_s(stdout, "\nAuthHashCalc v%u.%u.%u.%u built at %s\n\n",
-        PROGRAM_VERSION_MAJOR,
-        PROGRAM_VERSION_MINOR,
-        PROGRAM_VERSION_REVISION,
-        PROGRAM_VERSION_BUILD,
-        __TIMESTAMP__);
+        uResult = ProcessFileCLI(lpFileName, stdout);
 
-    uResult = ProcessFileCLI(lpFileName, stdout);
+        fprintf_s(stdout, "\nCompleted.");
 
-    fprintf_s(stdout, "\nCompleted.");
+    } while (FALSE);
 
     FreeConsole();
+
     return uResult;
 }
 

@@ -33,4 +33,4 @@ To build from source you need Microsoft Visual Studio 2015 or later.
 
 # Authors
 
-(c) 2021 - 2025 AuthHashCalc Project
+(c) 2021 - 2026 AuthHashCalc Project

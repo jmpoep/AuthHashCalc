@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2021
+*  (C) COPYRIGHT AUTHORS, 2021 - 2026
 *
 *  TITLE:       SUP.CPP
 *
-*  VERSION:     1.03
+*  VERSION:     1.06
 *
-*  DATE:        26 Oct 2021
+*  DATE:        06 Mar 2026
 *
 *  Program global support routines.
 *
@@ -60,22 +60,29 @@ LPWSTR supPrintHash(
     _In_ BOOLEAN UpcaseHex
 )
 {
-    ULONG   c;
-    PWCHAR  lpText;
-    BYTE    x;
+    ULONG c;
+    SIZE_T sz;
+    BYTE x;
+    LPWSTR lpText;
+    LPWSTR lpOut;
 
-    lpText = (LPWSTR)supHeapAlloc(sizeof(WCHAR) + ((SIZE_T)Length * 2 * sizeof(WCHAR)));
-    if (lpText) {
+    if (Length == 0 || Buffer == NULL)
+        return NULL;
 
-        for (c = 0; c < Length; ++c) {
-            x = Buffer[c];
+    sz = ((((SIZE_T)Length) * 2) + 1) * sizeof(WCHAR);
+    lpText = (LPWSTR)supHeapAlloc(sz);
+    if (lpText == NULL)
+        return NULL;
 
-            lpText[c * 2] = nibbletoh(x >> 4, UpcaseHex);
-            lpText[c * 2 + 1] = nibbletoh(x & 15, UpcaseHex);
-        }
+    lpOut = lpText;
 
-        lpText[Length * 2] = 0;
+    for (c = 0; c < Length; ++c) {
+        x = Buffer[c];
+        *lpOut++ = nibbletoh(x >> 4, UpcaseHex);
+        *lpOut++ = nibbletoh(x & 0x0F, UpcaseHex);
     }
+
+    *lpOut = 0;
 
     return lpText;
 }
@@ -146,14 +153,6 @@ VOID supDestroyFileViewInfo(
     _In_ PFILE_VIEW_INFO ViewInformation
 )
 {
-    if (ViewInformation->FileHandle != INVALID_HANDLE_VALUE) {
-        CloseHandle(ViewInformation->FileHandle);
-        ViewInformation->FileHandle = INVALID_HANDLE_VALUE;
-    }
-    if (ViewInformation->SectionHandle) {
-        NtClose(ViewInformation->SectionHandle);
-        ViewInformation->SectionHandle = NULL;
-    }
     if (ViewInformation->ViewBase) {
         if (NT_SUCCESS(NtUnmapViewOfSection(NtCurrentProcess(),
             ViewInformation->ViewBase)))
@@ -161,6 +160,14 @@ VOID supDestroyFileViewInfo(
             ViewInformation->ViewBase = NULL;
             ViewInformation->ViewSize = 0;
         }
+    }
+    if (ViewInformation->SectionHandle) {
+        NtClose(ViewInformation->SectionHandle);
+        ViewInformation->SectionHandle = NULL;
+    }
+    if (ViewInformation->FileHandle != INVALID_HANDLE_VALUE) {
+        CloseHandle(ViewInformation->FileHandle);
+        ViewInformation->FileHandle = INVALID_HANDLE_VALUE;
     }
 
     ViewInformation->NtHeaders = NULL;
@@ -189,7 +196,7 @@ NTSTATUS supxInitializeFileViewInfo(
         FILE_SHARE_READ,
         NULL,
         OPEN_EXISTING,
-        FILE_SUPPORTS_BLOCK_REFCOUNTING | FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NORMAL,
         NULL);
 
     if (fileHandle != INVALID_HANDLE_VALUE) {
@@ -245,23 +252,22 @@ NTSTATUS supMapInputFileForRead(
 {
     NTSTATUS ntStatus;
     SIZE_T viewSize;
+    ULONGLONG fileSize;
 
     ntStatus = supxInitializeFileViewInfo(ViewInformation);
     if (!NT_SUCCESS(ntStatus))
         return ntStatus;
 
+    fileSize = (ULONGLONG)ViewInformation->FileSize.QuadPart;
+    if ((LONGLONG)fileSize < 0) {
+        return STATUS_FILE_INVALID;
+    }
+
     if (PartialMap) {
-
-        if (ViewInformation->FileSize.QuadPart < RTL_MEG)
-            viewSize = (SIZE_T)ViewInformation->FileSize.QuadPart;
-        else
-            viewSize = (SIZE_T)RTL_MEG;
-
+        viewSize = (fileSize < RTL_MEG) ? (SIZE_T)fileSize : (SIZE_T)RTL_MEG;
     }
     else {
-
-        viewSize = (SIZE_T)ViewInformation->FileSize.QuadPart;
-
+        viewSize = (SIZE_T)fileSize;
     }
 
     ntStatus = NtMapViewOfSection(ViewInformation->SectionHandle,

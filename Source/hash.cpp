@@ -33,13 +33,13 @@ NTSTATUS HashpAddPad(
     _In_ ULONG PaddingSize,
     _In_ PCNG_CTX HashContext)
 {
-    if (PaddingSize == 0)
-        return STATUS_SUCCESS;
-
     static const UCHAR zeroPad[DEFAULT_ALIGN_BYTES] = { 0 };
     NTSTATUS ntStatus = STATUS_SUCCESS;
     ULONG remainingPad = PaddingSize;
     ULONG blockSize;
+
+    if (PaddingSize == 0)
+        return STATUS_SUCCESS;
 
     while (remainingPad > 0) {
         blockSize = min(remainingPad, DEFAULT_ALIGN_BYTES);
